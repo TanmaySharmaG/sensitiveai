@@ -1,4 +1,3 @@
-
 import os
 import re
 import json
@@ -22,15 +21,22 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib import colors
 from reportlab.lib.units import inch
  
-# ── Tesseract: auto-detect path (Linux server vs Windows local) ────────────────
-_tesseract = shutil.which("tesseract")
-if _tesseract:
-    pytesseract.pytesseract.tesseract_cmd = _tesseract
-else:
+# ── Tesseract: Linux server uses system tesseract, Windows uses installed path ─
+if os.name == "nt":
+    # Windows local development
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+else:
+    # Linux server (Railway, Render, etc.) — tesseract installed via apt
+    _tesseract = shutil.which("tesseract")
+    if _tesseract:
+        pytesseract.pytesseract.tesseract_cmd = _tesseract
+    # else pytesseract uses default which is fine on Linux
  
-# ── Poppler: only required on Windows (Linux has it via apt) ───────────────────
+# ── Poppler: only needed on Windows, Linux has it via apt ─────────────────────
 POPPLER_PATH = r"C:\poppler\Library\bin" if os.name == "nt" else None
+ 
+# ── Railway uses $PORT env variable ───────────────────────────────────────────
+PORT = int(os.environ.get("PORT", 5000))
  
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -272,16 +278,15 @@ def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
 @app.route("/api/health", methods=["GET"])
 def health():
     clf = get_classifier()
-    tesseract_available = bool(shutil.which("tesseract") or
-        os.path.exists(r"C:\Program Files\Tesseract-OCR\tesseract.exe"))
     return jsonify({
-        "status":             "ok",
-        "model_loaded":       clf is not None,
-        "model_name":         "distilbert-base-uncased-finetuned-sst-2-english",
-        "tesseract_available": tesseract_available,
-        "platform":           "windows" if os.name == "nt" else "linux",
-        "timestamp":          datetime.utcnow().isoformat(),
-        "scan_count":         len(scan_history),
+        "status":              "ok",
+        "model_loaded":        clf is not None,
+        "model_name":          "distilbert-base-uncased-finetuned-sst-2-english",
+        "tesseract_path":      pytesseract.pytesseract.tesseract_cmd,
+        "platform":            "windows" if os.name == "nt" else "linux",
+        "port":                PORT,
+        "timestamp":           datetime.utcnow().isoformat(),
+        "scan_count":          len(scan_history),
     })
  
  
@@ -321,11 +326,9 @@ def scan():
  
     text = extract_text_from_file(os.path.join(UPLOAD_FOLDER, saved_name), filename)
  
-    # Graceful fallback: if OCR unavailable on server, return a partial result
-    # instead of a hard error so the app still works
+    # Graceful fallback — never crash, return partial result
     if not text:
-        logger.warning(f"Could not extract text from {filename} — returning OCR-unavailable result")
-        text = f"[OCR unavailable on this server for file: {filename}. Install Tesseract and Poppler to enable image-based PDF scanning.]"
+        text = f"[Could not extract text from: {filename}. OCR may be unavailable.]"
  
     return jsonify(build_scan_result(text, filename, scan_id))
  
@@ -399,12 +402,12 @@ def report():
         w   = csv.writer(buf)
         w.writerow(["Field", "Value"])
         for field, key in [
-            ("Scan ID",     "scan_id"),
-            ("Filename",    "filename"),
-            ("Timestamp",   "timestamp"),
-            ("Risk Score",  "risk_score"),
-            ("Risk Level",  "risk_level"),
-            ("Word Count",  "word_count"),
+            ("Scan ID",    "scan_id"),
+            ("Filename",   "filename"),
+            ("Timestamp",  "timestamp"),
+            ("Risk Score", "risk_score"),
+            ("Risk Level", "risk_level"),
+            ("Word Count", "word_count"),
         ]:
             w.writerow([field, scan_data[key]])
         w.writerow(["Classification", scan_data["classification"]["label"]])
@@ -496,4 +499,4 @@ def get_settings():
  
  
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=PORT, debug=False)
