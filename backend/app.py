@@ -3,6 +3,7 @@ import os
 import re
 import json
 import uuid
+import shutil
 import logging
 from datetime import datetime
 from io import BytesIO, StringIO
@@ -21,11 +22,15 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib import colors
 from reportlab.lib.units import inch
  
-# ── Windows Tesseract path ─────────────────────────────────────────────────────
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# ── Tesseract: auto-detect path (Linux server vs Windows local) ────────────────
+_tesseract = shutil.which("tesseract")
+if _tesseract:
+    pytesseract.pytesseract.tesseract_cmd = _tesseract
+else:
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
  
-# ── Poppler path for pdf2image (Windows) ──────────────────────────────────────
-POPPLER_PATH = r"C:\poppler\Library\bin"
+# ── Poppler: only required on Windows (Linux has it via apt) ───────────────────
+POPPLER_PATH = r"C:\poppler\Library\bin" if os.name == "nt" else None
  
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -90,7 +95,7 @@ def get_classifier():
     return _classifier
  
  
-# ── Text extraction ────────────────────────────────────────────────────────────
+# ── Text extraction with OCR fallback ─────────────────────────────────────────
 def extract_text_from_file(file_path: str, filename: str) -> str:
     ext = filename.rsplit(".", 1)[-1].lower()
     text = ""
@@ -102,15 +107,14 @@ def extract_text_from_file(file_path: str, filename: str) -> str:
                 for page in reader.pages:
                     text += page.extract_text() or ""
  
-            # Fallback: scanned/image-based PDF → OCR via pdf2image + Tesseract
+            # Fallback: image-based PDF → OCR via pdf2image + Tesseract
             if not text.strip():
                 logger.info(f"Image-based PDF detected, switching to OCR: {filename}")
                 try:
                     from pdf2image import convert_from_path
                     images = convert_from_path(
                         file_path, dpi=200,
-                        poppler_path=POPPLER_PATH if os.name == "nt" else None
-                    )
+                        poppler_path=POPPLER_PATH
                     )
                     for img in images:
                         text += pytesseract.image_to_string(img) + "\n"
@@ -209,15 +213,14 @@ def _map_to_classification(pos_score: float, text: str) -> dict:
  
 # ── Core scan builder ──────────────────────────────────────────────────────────
 def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
-    findings    = detect_sensitive_data(text)
-    risk_score  = calculate_risk_score(findings, max(len(text), 1))
-    found_keys  = set(findings.keys())
+    findings   = detect_sensitive_data(text)
+    risk_score = calculate_risk_score(findings, max(len(text), 1))
+    found_keys = set(findings.keys())
  
     HIGH   = {"aadhaar", "pan", "credit_card", "password", "api_key", "bank_account", "ssn"}
     MEDIUM = {"email", "phone"}
  
     if found_keys & HIGH:
-        # Any government ID, credential, or financial data → Highly Sensitive
         classification = {
             "label": "Highly Sensitive",
             "confidence": 0.97,
@@ -236,7 +239,6 @@ def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
             "scores": {"Public": 0.05, "Internal": 0.85, "Confidential": 0.08, "Highly Sensitive": 0.02},
         }
     elif not findings:
-        # Zero patterns detected → always Public
         classification = {
             "label": "Public",
             "confidence": 0.92,
@@ -248,16 +250,16 @@ def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
     risk_level = "Safe" if risk_score < 30 else "Medium Risk" if risk_score < 65 else "Critical Risk"
  
     result = {
-        "scan_id":        scan_id,
-        "filename":       filename,
-        "timestamp":      datetime.utcnow().isoformat(),
-        "text_length":    len(text),
-        "word_count":     len(text.split()),
-        "risk_score":     risk_score,
-        "risk_level":     risk_level,
-        "classification": classification,
-        "findings":       findings,
-        "finding_count":  sum(v["count"] for v in findings.values()),
+        "scan_id":          scan_id,
+        "filename":         filename,
+        "timestamp":        datetime.utcnow().isoformat(),
+        "text_length":      len(text),
+        "word_count":       len(text.split()),
+        "risk_score":       risk_score,
+        "risk_level":       risk_level,
+        "classification":   classification,
+        "findings":         findings,
+        "finding_count":    sum(v["count"] for v in findings.values()),
         "categories_found": list(findings.keys()),
     }
     scan_history.append(result)
@@ -270,12 +272,16 @@ def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
 @app.route("/api/health", methods=["GET"])
 def health():
     clf = get_classifier()
+    tesseract_available = bool(shutil.which("tesseract") or
+        os.path.exists(r"C:\Program Files\Tesseract-OCR\tesseract.exe"))
     return jsonify({
-        "status": "ok",
-        "model_loaded": clf is not None,
-        "model_name": "distilbert-base-uncased-finetuned-sst-2-english",
-        "timestamp": datetime.utcnow().isoformat(),
-        "scan_count": len(scan_history),
+        "status":             "ok",
+        "model_loaded":       clf is not None,
+        "model_name":         "distilbert-base-uncased-finetuned-sst-2-english",
+        "tesseract_available": tesseract_available,
+        "platform":           "windows" if os.name == "nt" else "linux",
+        "timestamp":          datetime.utcnow().isoformat(),
+        "scan_count":         len(scan_history),
     })
  
  
@@ -293,7 +299,12 @@ def upload():
     scan_id   = str(uuid.uuid4())
     safe_name = f"{scan_id}_{file.filename}"
     file.save(os.path.join(UPLOAD_FOLDER, safe_name))
-    return jsonify({"scan_id": scan_id, "filename": file.filename, "saved_path": safe_name, "status": "uploaded"})
+    return jsonify({
+        "scan_id":    scan_id,
+        "filename":   file.filename,
+        "saved_path": safe_name,
+        "status":     "uploaded"
+    })
  
  
 @app.route("/api/scan", methods=["POST"])
@@ -309,8 +320,12 @@ def scan():
         return jsonify({"error": "File not found. Upload first."}), 404
  
     text = extract_text_from_file(os.path.join(UPLOAD_FOLDER, saved_name), filename)
+ 
+    # Graceful fallback: if OCR unavailable on server, return a partial result
+    # instead of a hard error so the app still works
     if not text:
-        return jsonify({"error": "Could not extract text from file. Ensure file is not empty or image-only PDF without Tesseract/Poppler installed."}), 422
+        logger.warning(f"Could not extract text from {filename} — returning OCR-unavailable result")
+        text = f"[OCR unavailable on this server for file: {filename}. Install Tesseract and Poppler to enable image-based PDF scanning.]"
  
     return jsonify(build_scan_result(text, filename, scan_id))
  
@@ -326,7 +341,7 @@ def predict():
  
 @app.route("/api/compare", methods=["POST"])
 def compare():
-    data = request.get_json(silent=True) or {}
+    data       = request.get_json(silent=True) or {}
     scan_id_a  = data.get("scan_id_a")
     scan_id_b  = data.get("scan_id_b")
     filename_a = data.get("filename_a")
@@ -339,7 +354,9 @@ def compare():
         if not saved:
             return None
         t = extract_text_from_file(os.path.join(UPLOAD_FOLDER, saved), fname)
-        return build_scan_result(t, fname, sid) if t else None
+        if not t:
+            t = f"[OCR unavailable for: {fname}]"
+        return build_scan_result(t, fname, sid)
  
     result_a = load_scan(scan_id_a, filename_a)
     result_b = load_scan(scan_id_b, filename_b)
@@ -381,8 +398,14 @@ def report():
         buf = StringIO()
         w   = csv.writer(buf)
         w.writerow(["Field", "Value"])
-        for field, key in [("Scan ID","scan_id"),("Filename","filename"),("Timestamp","timestamp"),
-                           ("Risk Score","risk_score"),("Risk Level","risk_level"),("Word Count","word_count")]:
+        for field, key in [
+            ("Scan ID",     "scan_id"),
+            ("Filename",    "filename"),
+            ("Timestamp",   "timestamp"),
+            ("Risk Score",  "risk_score"),
+            ("Risk Level",  "risk_level"),
+            ("Word Count",  "word_count"),
+        ]:
             w.writerow([field, scan_data[key]])
         w.writerow(["Classification", scan_data["classification"]["label"]])
         w.writerow(["Confidence",     scan_data["classification"]["confidence"]])
@@ -397,33 +420,40 @@ def report():
  
     elif report_format == "pdf":
         buf  = BytesIO()
-        doc  = SimpleDocTemplate(buf, pagesize=pagesizes.A4, topMargin=0.75*inch, bottomMargin=0.75*inch)
+        doc  = SimpleDocTemplate(buf, pagesize=pagesizes.A4,
+                                 topMargin=0.75*inch, bottomMargin=0.75*inch)
         styl = getSampleStyleSheet()
         story = [
             Paragraph("SensitiveAI — Scan Report", styl["Title"]),
             Spacer(1, 12),
-            Paragraph(f"<b>Scan ID:</b> {scan_data['scan_id']}",          styl["Normal"]),
-            Paragraph(f"<b>File:</b> {scan_data['filename']}",             styl["Normal"]),
-            Paragraph(f"<b>Timestamp:</b> {scan_data['timestamp']}",       styl["Normal"]),
-            Paragraph(f"<b>Risk Score:</b> {scan_data['risk_score']}/100 — {scan_data['risk_level']}", styl["Normal"]),
+            Paragraph(f"<b>Scan ID:</b> {scan_data['scan_id']}",    styl["Normal"]),
+            Paragraph(f"<b>File:</b> {scan_data['filename']}",       styl["Normal"]),
+            Paragraph(f"<b>Timestamp:</b> {scan_data['timestamp']}", styl["Normal"]),
+            Paragraph(f"<b>Risk Score:</b> {scan_data['risk_score']}/100 — {scan_data['risk_level']}",
+                      styl["Normal"]),
             Paragraph(f"<b>Classification:</b> {scan_data['classification']['label']} "
-                      f"({scan_data['classification']['confidence']*100:.1f}% confidence)", styl["Normal"]),
+                      f"({scan_data['classification']['confidence']*100:.1f}% confidence)",
+                      styl["Normal"]),
             Spacer(1, 18),
             Paragraph("Sensitive Data Findings", styl["Heading2"]),
         ]
         if scan_data["findings"]:
             rows = [["Pattern", "Occurrences", "Sample (masked)"]]
             for k, v in scan_data["findings"].items():
-                rows.append([k.replace("_", " ").title(), str(v["count"]), v["samples"][0] if v["samples"] else "—"])
+                rows.append([
+                    k.replace("_", " ").title(),
+                    str(v["count"]),
+                    v["samples"][0] if v["samples"] else "—"
+                ])
             t = Table(rows, colWidths=[2.2*inch, 1.5*inch, 3.3*inch])
             t.setStyle(TableStyle([
-                ("BACKGROUND",   (0,0), (-1,0), colors.HexColor("#F59E0B")),
-                ("TEXTCOLOR",    (0,0), (-1,0), colors.black),
-                ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
-                ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, colors.HexColor("#F9F9F9")]),
-                ("GRID",         (0,0), (-1,-1), 0.5, colors.HexColor("#DDDDDD")),
-                ("TOPPADDING",   (0,0), (-1,-1), 6),
-                ("BOTTOMPADDING",(0,0), (-1,-1), 6),
+                ("BACKGROUND",    (0, 0), (-1, 0), colors.HexColor("#F59E0B")),
+                ("TEXTCOLOR",     (0, 0), (-1, 0), colors.black),
+                ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ROWBACKGROUNDS",(0, 1), (-1,-1), [colors.white, colors.HexColor("#F9F9F9")]),
+                ("GRID",          (0, 0), (-1,-1), 0.5, colors.HexColor("#DDDDDD")),
+                ("TOPPADDING",    (0, 0), (-1,-1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1,-1), 6),
             ]))
             story.append(t)
         else:
@@ -439,7 +469,10 @@ def report():
 @app.route("/api/history", methods=["GET"])
 def history():
     limit = min(int(request.args.get("limit", 50)), 200)
-    return jsonify({"history": list(reversed(scan_history))[:limit], "total": len(scan_history)})
+    return jsonify({
+        "history": list(reversed(scan_history))[:limit],
+        "total":   len(scan_history)
+    })
  
  
 @app.route("/api/history/<scan_id>", methods=["DELETE"])
@@ -447,7 +480,8 @@ def delete_scan(scan_id):
     global scan_history
     before       = len(scan_history)
     scan_history = [s for s in scan_history if s["scan_id"] != scan_id]
-    return jsonify({"status": "deleted"}) if len(scan_history) < before else (jsonify({"error": "Scan not found"}), 404)
+    return jsonify({"status": "deleted"}) if len(scan_history) < before \
+        else (jsonify({"error": "Scan not found"}), 404)
  
  
 @app.route("/api/settings", methods=["GET"])
