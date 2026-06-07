@@ -196,24 +196,21 @@ def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
     findings = detect_sensitive_data(text)
     risk_score = calculate_risk_score(findings, max(len(text), 1))
     
-    # Override AI classification based on detected sensitive patterns
     high_sensitivity_patterns = {"aadhaar", "pan", "credit_card", "password", "api_key", "bank_account", "ssn"}
     medium_sensitivity_patterns = {"email", "phone"}
-    
     found_keys = set(findings.keys())
-    
+
     if found_keys & high_sensitivity_patterns:
-        # Any high-sensitivity PII found → force Highly Sensitive
         classification = {
             "label": "Highly Sensitive",
             "confidence": 0.97,
             "scores": {"Public": 0.01, "Internal": 0.01, "Confidential": 0.01, "Highly Sensitive": 0.97}
         }
-    elif risk_score >= 65:
+    elif found_keys & medium_sensitivity_patterns and risk_score >= 30:
         classification = {
             "label": "Confidential",
-            "confidence": 0.91,
-            "scores": {"Public": 0.02, "Internal": 0.04, "Confidential": 0.91, "Highly Sensitive": 0.03}
+            "confidence": 0.88,
+            "scores": {"Public": 0.02, "Internal": 0.06, "Confidential": 0.88, "Highly Sensitive": 0.04}
         }
     elif found_keys & medium_sensitivity_patterns:
         classification = {
@@ -221,10 +218,16 @@ def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
             "confidence": 0.85,
             "scores": {"Public": 0.05, "Internal": 0.85, "Confidential": 0.08, "Highly Sensitive": 0.02}
         }
+    elif not findings:
+        # No patterns at all → always Public
+        classification = {
+            "label": "Public",
+            "confidence": 0.92,
+            "scores": {"Public": 0.92, "Internal": 0.05, "Confidential": 0.02, "Highly Sensitive": 0.01}
+        }
     else:
-        # No sensitive patterns found → use AI model
         classification = classify_document(text)
-    
+
     risk_level = "Safe" if risk_score < 30 else "Medium Risk" if risk_score < 65 else "Critical Risk"
     result = {
         "scan_id": scan_id,
