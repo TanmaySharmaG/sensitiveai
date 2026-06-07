@@ -1,4 +1,20 @@
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
+import {
+  ScanSearch,
+  FileText,
+  Lock,
+  BarChart3,
+  GitCompare,
+  Settings,
+  ShieldAlert,
+  ArrowRight,
+  Zap,
+  CheckCircle,
+  Mail,
+  Phone
+} from "lucide-react";
 const FEATURES = [
   { icon: ScanSearch, title: "Document Scanner", desc: "Upload PDFs, DOCX, TXT, and images. AI extracts and analyzes every character for sensitive data exposure.", color: "#F59E0B" },
   { icon: FileText, title: "Text Analysis", desc: "Paste any text and get instant pattern detection with color-coded highlights for each data category.", color: "#10B981" },
