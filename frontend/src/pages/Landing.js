@@ -1,20 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-
-import {
-  ScanSearch,
-  FileText,
-  Lock,
-  BarChart3,
-  GitCompare,
-  Settings,
-  ShieldAlert,
-  ArrowRight,
-  Zap,
-  CheckCircle,
-  Mail,
-  Phone
-} from "lucide-react";
+import { ShieldAlert, ScanSearch, FileText, BarChart3, GitCompare, Settings,
+         ArrowRight, CheckCircle, Zap, Lock, Globe, Users, Mail, Phone } from "lucide-react";
+ 
 const FEATURES = [
   { icon: ScanSearch, title: "Document Scanner", desc: "Upload PDFs, DOCX, TXT, and images. AI extracts and analyzes every character for sensitive data exposure.", color: "#F59E0B" },
   { icon: FileText, title: "Text Analysis", desc: "Paste any text and get instant pattern detection with color-coded highlights for each data category.", color: "#10B981" },
@@ -23,32 +11,32 @@ const FEATURES = [
   { icon: GitCompare, title: "Document Compare", desc: "Upload two documents side-by-side and compare risk levels, classifications, and detected patterns.", color: "#F97316" },
   { icon: Settings, title: "Configurable Rules", desc: "Tune risk thresholds and toggle detection patterns to match your organization's compliance needs.", color: "#06B6D4" },
 ];
-
+ 
 const STATS = [
   { value: "10+", label: "Pattern Types Detected" },
   { value: "4", label: "Classification Levels" },
   { value: "5", label: "File Formats Supported" },
   { value: "100", label: "Risk Score Scale" },
 ];
-
+ 
 const TEAM = [
-  { name: "Priya Nair", role: "AI / ML Engineer", avatar: "PN" },
-  { name: "Arjun Mehta", role: "Backend Developer", avatar: "AM" },
-  { name: "Sneha Rao", role: "Frontend Engineer", avatar: "SR" },
-  { name: "Kiran Das", role: "Security Analyst", avatar: "KD" },
+  { name: "Tanmay Sharma G", role: "1RV25BCY062", avatar: "TS" },
+  { name: "Nesar M Kanchan", role: "1RV25BCY034", avatar: "NM" },
+  { name: "Kaushik Saravanan", role: "1RV25BCY025", avatar: "KS" },
+  { name: "MD Arshad", role: "1RV25BCY032", avatar: "MA" },
 ];
-
+ 
 function FloatingOrb({ color, className }) {
   return (
     <div className={`absolute rounded-full blur-[80px] opacity-20 pointer-events-none ${className}`}
       style={{ background: color }} />
   );
 }
-
+ 
 export default function Landing() {
   const navigate = useNavigate();
   const [contact, setContact] = useState({ name: "", email: "", message: "" });
-
+ 
   return (
     <div className="min-h-screen bg-[#151515] text-[#e5e5e5] overflow-x-hidden">
       {/* Nav */}
@@ -74,19 +62,19 @@ export default function Landing() {
           </button>
         </div>
       </nav>
-
+ 
       {/* Hero */}
       <section className="relative min-h-screen flex items-center justify-center pt-20 overflow-hidden">
         <FloatingOrb color="#F59E0B" className="w-[500px] h-[500px] -top-40 -right-40" />
         <FloatingOrb color="#10B981" className="w-[400px] h-[400px] bottom-0 -left-20" />
         <FloatingOrb color="#FF6B6B" className="w-[300px] h-[300px] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-
+ 
         <div className="relative z-10 text-center max-w-5xl mx-auto px-6 py-24">
           <div className="inline-flex items-center gap-2 bg-[#F59E0B]/10 border border-[#F59E0B]/25 rounded-full px-4 py-1.5 mb-8">
             <Zap size={12} className="text-[#F59E0B]" />
             <span className="text-xs text-[#F59E0B] font-medium">Powered by DistilBERT AI</span>
           </div>
-
+ 
           <h1 className="font-display font-semibold text-5xl md:text-7xl text-white leading-tight mb-6">
             Detect Sensitive Data
             <br />
@@ -96,7 +84,7 @@ export default function Landing() {
             Enterprise-grade AI document intelligence. Scan files, classify content, detect PII, Aadhaar, PAN,
             API keys and more — instantly.
           </p>
-
+ 
           <div className="flex flex-wrap justify-center gap-4">
             <button onClick={() => navigate("/scanner")}
               className="flex items-center gap-2.5 bg-[#F59E0B] text-black font-semibold px-7 py-3.5 rounded-xl
@@ -109,7 +97,7 @@ export default function Landing() {
               <BarChart3 size={18} /> View Dashboard
             </button>
           </div>
-
+ 
           {/* Trust badges */}
           <div className="mt-14 flex flex-wrap justify-center gap-6 text-sm text-white/30">
             {["Aadhaar Detection", "PAN Detection", "API Key Scanner", "PDF & DOCX Support", "Offline AI"].map((t) => (
@@ -120,7 +108,7 @@ export default function Landing() {
           </div>
         </div>
       </section>
-
+ 
       {/* Stats */}
       <section id="stats" className="py-16 border-y border-white/[0.06] bg-white/[0.01]">
         <div className="max-w-7xl mx-auto px-6">
@@ -134,7 +122,7 @@ export default function Landing() {
           </div>
         </div>
       </section>
-
+ 
       {/* Features */}
       <section id="features" className="py-24">
         <div className="max-w-7xl mx-auto px-6">
@@ -162,7 +150,7 @@ export default function Landing() {
           </div>
         </div>
       </section>
-
+ 
       {/* How it works */}
       <section className="py-24 bg-white/[0.01] border-y border-white/[0.06]">
         <div className="max-w-7xl mx-auto px-6">
@@ -189,7 +177,7 @@ export default function Landing() {
           </div>
         </div>
       </section>
-
+ 
       {/* Team */}
       <section id="team" className="py-24">
         <div className="max-w-7xl mx-auto px-6">
@@ -212,7 +200,7 @@ export default function Landing() {
           </div>
         </div>
       </section>
-
+ 
       {/* Contact */}
       <section id="contact" className="py-24 bg-white/[0.01] border-t border-white/[0.06]">
         <div className="max-w-2xl mx-auto px-6">
@@ -239,16 +227,16 @@ export default function Landing() {
             </button>
           </div>
           <div className="flex justify-center gap-8 mt-8 text-sm text-white/30">
-            <a href="mailto:hello@sensitiveai.dev" className="flex items-center gap-2 hover:text-white/60 transition-colors">
-              <Mail size={14} /> hello@sensitiveai.dev
+            <a href="mailto:tanmaysharma23122@gmail.com" className="flex items-center gap-2 hover:text-white/60 transition-colors">
+              <Mail size={14} /> tanmaysharma23122@gmail.com
             </a>
-            <a href="tel:+91-000-000-0000" className="flex items-center gap-2 hover:text-white/60 transition-colors">
-              <Phone size={14} /> +91-000-000-0000
+            <a href="tel:+91 9448319652" className="flex items-center gap-2 hover:text-white/60 transition-colors">
+              <Phone size={14} /> +91 9448319652
             </a>
           </div>
         </div>
       </section>
-
+ 
       {/* Footer */}
       <footer className="py-8 border-t border-white/[0.06] text-center text-white/25 text-sm">
         <p>© 2024 SensitiveAI. Built with React, Flask, and DistilBERT.</p>
