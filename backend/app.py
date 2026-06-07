@@ -109,7 +109,8 @@ def extract_text_from_file(file_path: str, filename: str) -> str:
                     from pdf2image import convert_from_path
                     images = convert_from_path(
                         file_path, dpi=200,
-                        poppler_path=POPPLER_PATH if os.path.isdir(POPPLER_PATH) else None
+                        poppler_path=POPPLER_PATH if os.name == "nt" else None
+                    )
                     )
                     for img in images:
                         text += pytesseract.image_to_string(img) + "\n"
