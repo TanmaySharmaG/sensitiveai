@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldAlert, ScanSearch, FileText, BarChart3, GitCompare, Settings,
-         ArrowRight, CheckCircle, Zap, Lock, Globe, Users, Mail, Phone } from "lucide-react";
+         ArrowRight, CheckCircle, Zap, Lock, Mail, Phone } from "lucide-react";
  
 const FEATURES = [
   { icon: ScanSearch, title: "Document Scanner", desc: "Upload PDFs, DOCX, TXT, and images. AI extracts and analyzes every character for sensitive data exposure.", color: "#F59E0B" },
@@ -20,10 +20,10 @@ const STATS = [
 ];
  
 const TEAM = [
-  { name: "Tanmay Sharma G", role: "1RV25BCY062", avatar: "TS" },
-  { name: "Nesar M Kanchan", role: "1RV25BCY034", avatar: "NM" },
-  { name: "Kaushik Saravanan", role: "1RV25BCY025", avatar: "KS" },
-  { name: "MD Arshad", role: "1RV25BCY032", avatar: "MA" },
+  { name: "Tanmay Sharma G", role: "AI / ML Engineer", avatar: "TS" },
+  { name: "Nesar M Kanchan", role: "Backend Developer", avatar: "NM" },
+  { name: "Kaushik Saravanan", role: "Frontend Engineer", avatar: "KS" },
+  { name: "MD Arshad", role: "Security Analyst", avatar: "MA" },
 ];
  
 function FloatingOrb({ color, className }) {
