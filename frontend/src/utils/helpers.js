@@ -63,13 +63,13 @@ export const formatDate = (iso) => {
 export const highlightText = (text, findings) => {
   if (!findings || Object.keys(findings).length === 0) return [{ type: "text", content: text }];
   const PATTERNS = {
-    email: /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g,
-    phone: /(?:\+91[\-\s]?)?[6-9]\d{9}\b/g,
-    aadhaar: /\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b/g,
-    pan: /\b[A-Z]{5}[0-9]{4}[A-Z]\b/g,
-    credit_card: /\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14})\b/g,
-    password: /(?:password|passwd|pwd)\s*[:=]\s*\S+/gi,
-    api_key: /(?:api[_\-]?key|apikey|token|secret)\s*[:=]\s*[A-Za-z0-9\-_]{16,}/gi,
+    email: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+phone: /(?:\+91[-\s]?)?[6-9]\d{9}\b/g,
+aadhaar: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g,
+pan: /\b[A-Z]{5}[0-9]{4}[A-Z]\b/g,
+credit_card: /\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14})\b/g,
+password: /(?:password|passwd|pwd)\s*[:=]\s*\S+/gi,
+api_key: /(?:api[_-]?key|apikey|token|secret)\s*[:=]\s*[A-Za-z0-9_-]{16,}/gi,
   };
   const active = Object.keys(findings).filter((k) => PATTERNS[k]);
   if (!active.length) return [{ type: "text", content: text }];
