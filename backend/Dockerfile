@@ -11,5 +11,4 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
-EXPOSE 10000
-CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:10000", "--timeout", "120", "app:app"]
+CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:$PORT", "--timeout", "120", "app:app"]
