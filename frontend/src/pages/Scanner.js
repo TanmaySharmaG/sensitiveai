@@ -8,7 +8,7 @@ import FindingsCard from "../components/FindingsCard";
 import { ClassificationBadge, ClassificationChart } from "../components/ClassificationChart";
 import { uploadFile, scanFile, downloadReport } from "../utils/api";
 import { formatDate } from "../utils/helpers";
-
+ 
 export default function Scanner() {
   const [file, setFile] = useState(null);
   const [scanMeta, setScanMeta] = useState(null);
@@ -16,7 +16,7 @@ export default function Scanner() {
   const [uploading, setUploading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState(0);
-
+ 
   const handleUpload = async () => {
     if (!file) return toast.error("Please select a file first");
     setUploading(true);
@@ -31,7 +31,7 @@ export default function Scanner() {
       setUploading(false);
     }
   };
-
+ 
   const handleScan = async () => {
     if (!scanMeta) return toast.error("Upload the file first");
     setScanning(true);
@@ -45,18 +45,18 @@ export default function Scanner() {
       setScanning(false);
     }
   };
-
+ 
   const reset = () => { setFile(null); setScanMeta(null); setResult(null); setProgress(0); };
-
+ 
   return (
     <div className="min-h-screen">
       <PageHeader title="Document Scanner" subtitle="Upload and scan files for sensitive data" icon={ScanSearch} />
       <div className="p-6 max-w-5xl mx-auto space-y-6">
-
+ 
         {/* Upload panel */}
         <div className="glass p-6 space-y-5">
           <DropZone onFile={setFile} file={file} disabled={uploading || scanning} />
-
+ 
           {/* Progress bar */}
           {uploading && (
             <div className="space-y-1">
@@ -66,7 +66,7 @@ export default function Scanner() {
               <p className="text-xs text-white/40 text-right">{progress}% uploaded</p>
             </div>
           )}
-
+ 
           <div className="flex flex-wrap gap-3">
             {!scanMeta ? (
               <button onClick={handleUpload} disabled={!file || uploading}
@@ -92,7 +92,7 @@ export default function Scanner() {
             </p>
           )}
         </div>
-
+ 
         {/* Results */}
         {result && (
           <div className="space-y-5 animate-slide-up">
@@ -103,7 +103,7 @@ export default function Scanner() {
               <span className="text-white/40">Scanned: <span className="text-white">{formatDate(result.timestamp)}</span></span>
               <span className="text-white/40">Patterns: <span className="text-[#FF6B6B]">{result.finding_count}</span></span>
             </div>
-
+ 
             <div className="grid md:grid-cols-2 gap-5">
               {/* Risk */}
               <div className="glass p-6 flex flex-col items-center justify-center gap-2">
@@ -119,10 +119,10 @@ export default function Scanner() {
                 </div>
               </div>
             </div>
-
+ 
             {/* Findings */}
-            <FindingsCard findings={result.findings} />
-
+            <FindingsCard findings={result.findings} classification={result.classification} />
+ 
             {/* Download */}
             <div className="glass p-5">
               <h3 className="text-white/60 text-sm font-medium uppercase tracking-wider mb-4">Download Report</h3>

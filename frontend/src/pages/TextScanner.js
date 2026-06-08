@@ -7,13 +7,13 @@ import FindingsCard from "../components/FindingsCard";
 import { ClassificationBadge } from "../components/ClassificationChart";
 import { predictText } from "../utils/api";
 import { highlightText, patternLabel } from "../utils/helpers";
-
+ 
 const SAMPLES = [
   { label: "Clean Text", text: "This is a general business report discussing market trends and quarterly performance indicators for the fiscal year." },
   { label: "With PII", text: "Contact John at john.doe@company.com or +91 9876543210. His Aadhaar is 1234 5678 9012 and PAN is ABCDE1234F." },
   { label: "API Leak", text: "DB_PASSWORD=s3cr3t123! AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY STRIPE_TOKEN=sk_live_abcd1234efgh5678" },
 ];
-
+ 
 function HighlightedText({ tokens }) {
   return (
     <p className="text-sm text-white/70 leading-relaxed font-mono whitespace-pre-wrap break-words">
@@ -28,12 +28,12 @@ function HighlightedText({ tokens }) {
     </p>
   );
 }
-
+ 
 export default function TextScanner() {
   const [text, setText] = useState("");
   const [result, setResult] = useState(null);
   const [scanning, setScanning] = useState(false);
-
+ 
   const handleScan = async () => {
     if (!text.trim()) return toast.error("Enter some text to analyze");
     setScanning(true);
@@ -47,16 +47,16 @@ export default function TextScanner() {
       setScanning(false);
     }
   };
-
+ 
   const reset = () => { setText(""); setResult(null); };
-
+ 
   const tokens = result ? highlightText(text, result.findings) : [];
-
+ 
   return (
     <div className="min-h-screen">
       <PageHeader title="Text Scanner" subtitle="Paste text for instant sensitive data analysis" icon={FileText} />
       <div className="p-6 max-w-5xl mx-auto space-y-5">
-
+ 
         {/* Quick samples */}
         <div className="flex flex-wrap gap-2">
           <span className="text-xs text-white/30 self-center">Quick samples:</span>
@@ -67,7 +67,7 @@ export default function TextScanner() {
             </button>
           ))}
         </div>
-
+ 
         {/* Input */}
         <div className="glass p-5 space-y-4">
           <textarea
@@ -93,7 +93,7 @@ export default function TextScanner() {
             </div>
           </div>
         </div>
-
+ 
         {/* Results */}
         {result && (
           <div className="space-y-5 animate-slide-up">
@@ -115,7 +115,7 @@ export default function TextScanner() {
                 </div>
               </div>
             </div>
-
+ 
             {/* Highlighted text */}
             {tokens.length > 0 && (
               <div className="glass p-5">
@@ -134,8 +134,8 @@ export default function TextScanner() {
                 )}
               </div>
             )}
-
-            <FindingsCard findings={result.findings} />
+ 
+            <FindingsCard findings={result.findings} classification={result.classification} />
           </div>
         )}
       </div>
