@@ -137,44 +137,30 @@ def detect_sensitive_data(text: str) -> dict:
 def calculate_risk_score(findings: dict, text_length: int, text: str = "") -> int:
     score = 0
 
-    # ── PII pattern score ──────────────────────────────────────────────────────
     if findings:
         raw = sum(PATTERN_RISK.get(k, 10) * v["count"] for k, v in findings.items())
         score = min(80, int((raw / max(text_length / 100, 1)) * 2 + raw * 0.4))
 
-    # ── Keyword-based risk boost ───────────────────────────────────────────────
-    if text:
+    if text and len(text.split()) >= 20:
         lower = text.lower()
-        highly_sensitive_words = [
-            "confidential", "restricted", "secret", "private",
-            "internal only", "non-disclosure", "prohibited",
-            "unauthorized", "strictly confidential", "classified",
-            "top secret", "privileged", "do not distribute"
+        highly_sensitive_phrases = [
+            "strictly confidential", "top secret", "classified document",
+            "restricted access", "non-disclosure", "do not distribute",
+            "internal only", "privileged and confidential"
         ]
-        confidential_words = [
-            "internal", "not for distribution", "employee",
-            "discretion", "restructuring", "appraisal",
-            "performance review", "salary", "management only", "sensitive"
+        confidential_phrases = [
+            "not for distribution", "for internal use",
+            "employee performance", "internal distribution"
         ]
-        internal_words = [
-            "draft", "review", "internal use", "pending",
-            "do not share", "not approved", "work in progress"
+        internal_phrases = [
+            "internal use only", "pending approval", "draft document"
         ]
 
-        keyword_hits = sum(1 for w in highly_sensitive_words if w in lower)
-        if keyword_hits >= 2:
-            score = max(score, 75)   # Multiple highly sensitive words → high risk
-        elif keyword_hits == 1:
-            score = max(score, 60)   # One highly sensitive word → medium-high risk
-
-        keyword_hits = sum(1 for w in confidential_words if w in lower)
-        if keyword_hits >= 2:
-            score = max(score, 55)
-        elif keyword_hits == 1:
-            score = max(score, 40)
-
-        keyword_hits = sum(1 for w in internal_words if w in lower)
-        if keyword_hits >= 1:
+        if any(p in lower for p in highly_sensitive_phrases):
+            score = max(score, 72)
+        elif any(p in lower for p in confidential_phrases):
+            score = max(score, 50)
+        elif any(p in lower for p in internal_phrases):
             score = max(score, 25)
 
     return min(score, 100)
@@ -182,46 +168,50 @@ def calculate_risk_score(findings: dict, text_length: int, text: str = "") -> in
  
 def classify_document(text: str) -> dict:
     lower = text.lower()
- 
-    # ── Keyword-based classification runs FIRST (most reliable) ──────────────
-    highly_sensitive_words = [
-        "confidential", "restricted", "secret", "private",
-        "internal only", "non-disclosure", "prohibited",
-        "unauthorized", "strictly confidential", "do not distribute",
-        "top secret", "classified", "privileged"
-    ]
-    confidential_words = [
-        "internal", "not for distribution", "employee",
-        "discretion", "restructuring", "appraisal",
-        "performance review", "salary", "hr document",
-        "management only", "sensitive"
-    ]
-    internal_words = [
-        "draft", "review", "internal use", "pending",
-        "do not share", "not approved", "for review",
-        "internal draft", "work in progress"
-    ]
- 
-    if any(w in lower for w in highly_sensitive_words):
-        return {
-            "label": "Highly Sensitive",
-            "confidence": 0.94,
-            "scores": {"Public": 0.02, "Internal": 0.02, "Confidential": 0.02, "Highly Sensitive": 0.94}
-        }
-    elif any(w in lower for w in confidential_words):
-        return {
-            "label": "Confidential",
-            "confidence": 0.88,
-            "scores": {"Public": 0.03, "Internal": 0.06, "Confidential": 0.88, "Highly Sensitive": 0.03}
-        }
-    elif any(w in lower for w in internal_words):
-        return {
-            "label": "Internal",
-            "confidence": 0.83,
-            "scores": {"Public": 0.05, "Internal": 0.83, "Confidential": 0.09, "Highly Sensitive": 0.03}
-        }
- 
-    # ── DistilBERT runs ONLY if no keywords matched ───────────────────────────
+    words = lower.split()
+    word_count = len(words)
+
+    # Only apply keyword classification for real documents (more than 20 words)
+    # Short OCR text from images is too noisy
+    if word_count >= 20:
+        highly_sensitive_phrases = [
+            "strictly confidential", "top secret", "classified document",
+            "restricted access", "non-disclosure", "do not distribute",
+            "internal only", "privileged and confidential",
+            "unauthorized access prohibited", "confidential and restricted"
+        ]
+        confidential_phrases = [
+            "not for distribution", "for internal use",
+            "employee performance", "performance review",
+            "internal distribution", "management only",
+            "handle with discretion", "organizational restructuring"
+        ]
+        internal_phrases = [
+            "internal use only", "pending approval",
+            "do not share externally", "draft document",
+            "work in progress", "for review only"
+        ]
+
+        if any(phrase in lower for phrase in highly_sensitive_phrases):
+            return {
+                "label": "Highly Sensitive",
+                "confidence": 0.94,
+                "scores": {"Public": 0.02, "Internal": 0.02, "Confidential": 0.02, "Highly Sensitive": 0.94}
+            }
+        elif any(phrase in lower for phrase in confidential_phrases):
+            return {
+                "label": "Confidential",
+                "confidence": 0.88,
+                "scores": {"Public": 0.03, "Internal": 0.06, "Confidential": 0.88, "Highly Sensitive": 0.03}
+            }
+        elif any(phrase in lower for phrase in internal_phrases):
+            return {
+                "label": "Internal",
+                "confidence": 0.83,
+                "scores": {"Public": 0.05, "Internal": 0.83, "Confidential": 0.09, "Highly Sensitive": 0.03}
+            }
+
+    # DistilBERT for everything else
     clf = get_classifier()
     if not clf or not text.strip():
         return {
@@ -240,7 +230,6 @@ def classify_document(text: str) -> dict:
             "confidence": 0.88,
             "scores": {"Public": 0.88, "Internal": 0.07, "Confidential": 0.03, "Highly Sensitive": 0.02}
         }
- 
  
 def _map_to_classification(pos_score: float, text: str) -> dict:
     lower = text.lower()
