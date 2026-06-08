@@ -21,21 +21,15 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib import colors
 from reportlab.lib.units import inch
  
-# ── Tesseract: Linux server uses system tesseract, Windows uses installed path ─
+# ── Tesseract path ─────────────────────────────────────────────────────────────
 if os.name == "nt":
-    # Windows local development
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 else:
-    # Linux server (Railway, Render, etc.) — tesseract installed via apt
     _tesseract = shutil.which("tesseract")
     if _tesseract:
         pytesseract.pytesseract.tesseract_cmd = _tesseract
-    # else pytesseract uses default which is fine on Linux
  
-# ── Poppler: only needed on Windows, Linux has it via apt ─────────────────────
 POPPLER_PATH = r"C:\poppler\Library\bin" if os.name == "nt" else None
- 
-# ── Railway uses $PORT env variable ───────────────────────────────────────────
 PORT = int(os.environ.get("PORT", 5000))
  
 logging.basicConfig(level=logging.INFO)
@@ -46,19 +40,13 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
  
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({
-        "status": "online",
-        "message": "SensitiveAI Backend Running",
-        "health_check": "/api/health"
-    })
+    return jsonify({"status": "online", "message": "SensitiveAI Backend Running", "health_check": "/api/health"})
  
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
  
-# In-memory scan history
 scan_history = []
  
-# ── Sensitive data regex patterns ─────────────────────────────────────────────
 PATTERNS = {
     "email":        r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b",
     "phone":        r"(?:\+91[\-\s]?)?[6-9]\d{9}\b",
@@ -80,7 +68,6 @@ PATTERN_RISK = {
  
 CLASSIFICATION_LABELS = ["Public", "Internal", "Confidential", "Highly Sensitive"]
  
-# ── DistilBERT lazy loader ─────────────────────────────────────────────────────
 _classifier = None
  
 def get_classifier():
@@ -101,53 +88,37 @@ def get_classifier():
     return _classifier
  
  
-# ── Text extraction with OCR fallback ─────────────────────────────────────────
 def extract_text_from_file(file_path: str, filename: str) -> str:
     ext = filename.rsplit(".", 1)[-1].lower()
     text = ""
     try:
         if ext == "pdf":
-            # Attempt native text extraction first
             with open(file_path, "rb") as f:
                 reader = PyPDF2.PdfReader(f)
                 for page in reader.pages:
                     text += page.extract_text() or ""
- 
-            # Fallback: image-based PDF → OCR via pdf2image + Tesseract
             if not text.strip():
-                logger.info(f"Image-based PDF detected, switching to OCR: {filename}")
                 try:
                     from pdf2image import convert_from_path
-                    images = convert_from_path(
-                        file_path, dpi=200,
-                        poppler_path=POPPLER_PATH
-                    )
+                    images = convert_from_path(file_path, dpi=200, poppler_path=POPPLER_PATH)
                     for img in images:
                         text += pytesseract.image_to_string(img) + "\n"
-                except ImportError:
-                    logger.warning("pdf2image not installed — run: pip install pdf2image")
                 except Exception as e:
-                    logger.warning(f"OCR failed for image PDF: {e}")
- 
+                    logger.warning(f"OCR failed: {e}")
         elif ext == "docx":
             doc = docx.Document(file_path)
             text = "\n".join([p.text for p in doc.paragraphs])
- 
         elif ext == "txt":
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 text = f.read()
- 
         elif ext in ("jpg", "jpeg", "png"):
             img = Image.open(file_path)
             text = pytesseract.image_to_string(img)
- 
     except Exception as e:
         logger.error(f"Text extraction error for {filename}: {e}")
- 
     return text.strip()
  
  
-# ── Pattern detection ──────────────────────────────────────────────────────────
 def detect_sensitive_data(text: str) -> dict:
     findings = {}
     for name, pattern in PATTERNS.items():
@@ -163,40 +134,94 @@ def detect_sensitive_data(text: str) -> dict:
     return findings
  
  
-# ── Risk scoring ───────────────────────────────────────────────────────────────
-def calculate_risk_score(findings: dict, text_length: int) -> int:
-    if not findings:
-        return 0
-    raw = sum(PATTERN_RISK.get(k, 10) * v["count"] for k, v in findings.items())
-    score = min(100, int((raw / max(text_length / 100, 1)) * 2 + raw * 0.4))
+def calculate_risk_score(findings: dict, text_length: int, text: str = "") -> int:
+    score = 0
+
+    # ── PII pattern score ──────────────────────────────────────────────────────
+    if findings:
+        raw = sum(PATTERN_RISK.get(k, 10) * v["count"] for k, v in findings.items())
+        score = min(80, int((raw / max(text_length / 100, 1)) * 2 + raw * 0.4))
+
+    # ── Keyword-based risk boost ───────────────────────────────────────────────
+    if text:
+        lower = text.lower()
+        highly_sensitive_words = [
+            "confidential", "restricted", "secret", "private",
+            "internal only", "non-disclosure", "prohibited",
+            "unauthorized", "strictly confidential", "classified",
+            "top secret", "privileged", "do not distribute"
+        ]
+        confidential_words = [
+            "internal", "not for distribution", "employee",
+            "discretion", "restructuring", "appraisal",
+            "performance review", "salary", "management only", "sensitive"
+        ]
+        internal_words = [
+            "draft", "review", "internal use", "pending",
+            "do not share", "not approved", "work in progress"
+        ]
+
+        keyword_hits = sum(1 for w in highly_sensitive_words if w in lower)
+        if keyword_hits >= 2:
+            score = max(score, 75)   # Multiple highly sensitive words → high risk
+        elif keyword_hits == 1:
+            score = max(score, 60)   # One highly sensitive word → medium-high risk
+
+        keyword_hits = sum(1 for w in confidential_words if w in lower)
+        if keyword_hits >= 2:
+            score = max(score, 55)
+        elif keyword_hits == 1:
+            score = max(score, 40)
+
+        keyword_hits = sum(1 for w in internal_words if w in lower)
+        if keyword_hits >= 1:
+            score = max(score, 25)
+
     return min(score, 100)
  
  
-# ── AI classification helpers ──────────────────────────────────────────────────
 def classify_document(text: str) -> dict:
     lower = text.lower()
-    
-    # Heuristic keyword check runs FIRST — before AI model
-    if any(w in lower for w in ["confidential", "restricted", "secret", "private", "internal only", "non-disclosure", "prohibited", "unauthorized"]):
+ 
+    # ── Keyword-based classification runs FIRST (most reliable) ──────────────
+    highly_sensitive_words = [
+        "confidential", "restricted", "secret", "private",
+        "internal only", "non-disclosure", "prohibited",
+        "unauthorized", "strictly confidential", "do not distribute",
+        "top secret", "classified", "privileged"
+    ]
+    confidential_words = [
+        "internal", "not for distribution", "employee",
+        "discretion", "restructuring", "appraisal",
+        "performance review", "salary", "hr document",
+        "management only", "sensitive"
+    ]
+    internal_words = [
+        "draft", "review", "internal use", "pending",
+        "do not share", "not approved", "for review",
+        "internal draft", "work in progress"
+    ]
+ 
+    if any(w in lower for w in highly_sensitive_words):
         return {
             "label": "Highly Sensitive",
-            "confidence": 0.93,
-            "scores": {"Public": 0.02, "Internal": 0.02, "Confidential": 0.03, "Highly Sensitive": 0.93}
+            "confidence": 0.94,
+            "scores": {"Public": 0.02, "Internal": 0.02, "Confidential": 0.02, "Highly Sensitive": 0.94}
         }
-    elif any(w in lower for w in ["internal", "not for distribution", "employee", "discretion", "restructuring", "appraisal"]):
+    elif any(w in lower for w in confidential_words):
         return {
             "label": "Confidential",
-            "confidence": 0.87,
-            "scores": {"Public": 0.03, "Internal": 0.07, "Confidential": 0.87, "Highly Sensitive": 0.03}
+            "confidence": 0.88,
+            "scores": {"Public": 0.03, "Internal": 0.06, "Confidential": 0.88, "Highly Sensitive": 0.03}
         }
-    elif any(w in lower for w in ["draft", "review", "internal use", "pending", "do not share", "not approved"]):
+    elif any(w in lower for w in internal_words):
         return {
             "label": "Internal",
-            "confidence": 0.82,
-            "scores": {"Public": 0.05, "Internal": 0.82, "Confidential": 0.10, "Highly Sensitive": 0.03}
+            "confidence": 0.83,
+            "scores": {"Public": 0.05, "Internal": 0.83, "Confidential": 0.09, "Highly Sensitive": 0.03}
         }
-    
-    # Only reach DistilBERT if no keywords matched
+ 
+    # ── DistilBERT runs ONLY if no keywords matched ───────────────────────────
     clf = get_classifier()
     if not clf or not text.strip():
         return {
@@ -217,21 +242,6 @@ def classify_document(text: str) -> dict:
         }
  
  
-def _heuristic_classify(text: str) -> dict:
-    lower = text.lower()
-    if any(w in lower for w in ["confidential", "restricted", "secret", "private", "internal only"]):
-        label, conf = "Highly Sensitive", 0.91
-    elif any(w in lower for w in ["internal", "not for distribution", "employee"]):
-        label, conf = "Confidential", 0.82
-    elif any(w in lower for w in ["draft", "review", "internal use"]):
-        label, conf = "Internal", 0.75
-    else:
-        label, conf = "Public", 0.88
-    scores = {l: round(0.03 + (0.6 if l == label else 0.1), 3) for l in CLASSIFICATION_LABELS}
-    scores[label] = round(conf, 3)
-    return {"label": label, "confidence": conf, "scores": scores}
- 
- 
 def _map_to_classification(pos_score: float, text: str) -> dict:
     lower = text.lower()
     sensitive_keywords = sum(1 for w in ["password", "ssn", "secret", "aadhaar", "pan", "credit"] if w in lower)
@@ -248,10 +258,10 @@ def _map_to_classification(pos_score: float, text: str) -> dict:
     return {"label": label, "confidence": conf, "scores": scores}
  
  
-# ── Core scan builder ──────────────────────────────────────────────────────────
 def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
     findings   = detect_sensitive_data(text)
-    risk_score = calculate_risk_score(findings, max(len(text), 1))
+    risk_score = calculate_risk_score(findings, max(len(text), 1), text)  # ← add text here
+
     found_keys = set(findings.keys())
  
     HIGH   = {"aadhaar", "pan", "credit_card", "password", "api_key", "bank_account", "ssn"}
@@ -276,11 +286,8 @@ def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
             "scores": {"Public": 0.05, "Internal": 0.85, "Confidential": 0.08, "Highly Sensitive": 0.02},
         }
     elif not findings:
-        classification = {
-            "label": "Public",
-            "confidence": 0.92,
-            "scores": {"Public": 0.92, "Internal": 0.05, "Confidential": 0.02, "Highly Sensitive": 0.01},
-        }
+        # No patterns — use keyword + DistilBERT classification
+        classification = classify_document(text)
     else:
         classification = classify_document(text)
  
@@ -305,19 +312,17 @@ def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
     return result
  
  
-# ── API routes ─────────────────────────────────────────────────────────────────
 @app.route("/api/health", methods=["GET"])
 def health():
     clf = get_classifier()
     return jsonify({
-        "status":              "ok",
-        "model_loaded":        clf is not None,
-        "model_name":          "distilbert-base-uncased-finetuned-sst-2-english",
-        "tesseract_path":      pytesseract.pytesseract.tesseract_cmd,
-        "platform":            "windows" if os.name == "nt" else "linux",
-        "port":                PORT,
-        "timestamp":           datetime.utcnow().isoformat(),
-        "scan_count":          len(scan_history),
+        "status":       "ok",
+        "model_loaded": clf is not None,
+        "model_name":   "distilbert-base-uncased-finetuned-sst-2-english",
+        "platform":     "windows" if os.name == "nt" else "linux",
+        "port":         PORT,
+        "timestamp":    datetime.utcnow().isoformat(),
+        "scan_count":   len(scan_history),
     })
  
  
@@ -335,12 +340,7 @@ def upload():
     scan_id   = str(uuid.uuid4())
     safe_name = f"{scan_id}_{file.filename}"
     file.save(os.path.join(UPLOAD_FOLDER, safe_name))
-    return jsonify({
-        "scan_id":    scan_id,
-        "filename":   file.filename,
-        "saved_path": safe_name,
-        "status":     "uploaded"
-    })
+    return jsonify({"scan_id": scan_id, "filename": file.filename, "saved_path": safe_name, "status": "uploaded"})
  
  
 @app.route("/api/scan", methods=["POST"])
@@ -350,17 +350,12 @@ def scan():
     filename = data.get("filename")
     if not scan_id or not filename:
         return jsonify({"error": "scan_id and filename required"}), 400
- 
     saved_name = next((f for f in os.listdir(UPLOAD_FOLDER) if f.startswith(scan_id)), None)
     if not saved_name:
         return jsonify({"error": "File not found. Upload first."}), 404
- 
     text = extract_text_from_file(os.path.join(UPLOAD_FOLDER, saved_name), filename)
- 
-    # Graceful fallback — never crash, return partial result
     if not text:
-        text = f"[Could not extract text from: {filename}. OCR may be unavailable.]"
- 
+        text = f"[Could not extract text from: {filename}]"
     return jsonify(build_scan_result(text, filename, scan_id))
  
  
@@ -395,9 +390,9 @@ def compare():
     result_a = load_scan(scan_id_a, filename_a)
     result_b = load_scan(scan_id_b, filename_b)
     if not result_a:
-        return jsonify({"error": f"File A not found for scan_id: {scan_id_a}"}), 404
+        return jsonify({"error": f"File A not found: {scan_id_a}"}), 404
     if not result_b:
-        return jsonify({"error": f"File B not found for scan_id: {scan_id_b}"}), 404
+        return jsonify({"error": f"File B not found: {scan_id_b}"}), 404
  
     risk_diff = result_a["risk_score"] - result_b["risk_score"]
     return jsonify({
@@ -417,8 +412,7 @@ def report():
     data          = request.get_json(silent=True) or {}
     scan_id       = data.get("scan_id")
     report_format = data.get("format", "json").lower()
- 
-    scan_data = next((s for s in reversed(scan_history) if s["scan_id"] == scan_id), None)
+    scan_data     = next((s for s in reversed(scan_history) if s["scan_id"] == scan_id), None)
     if not scan_data:
         return jsonify({"error": "Scan not found. Run a scan first."}), 404
  
@@ -432,14 +426,8 @@ def report():
         buf = StringIO()
         w   = csv.writer(buf)
         w.writerow(["Field", "Value"])
-        for field, key in [
-            ("Scan ID",    "scan_id"),
-            ("Filename",   "filename"),
-            ("Timestamp",  "timestamp"),
-            ("Risk Score", "risk_score"),
-            ("Risk Level", "risk_level"),
-            ("Word Count", "word_count"),
-        ]:
+        for field, key in [("Scan ID","scan_id"),("Filename","filename"),("Timestamp","timestamp"),
+                           ("Risk Score","risk_score"),("Risk Level","risk_level"),("Word Count","word_count")]:
             w.writerow([field, scan_data[key]])
         w.writerow(["Classification", scan_data["classification"]["label"]])
         w.writerow(["Confidence",     scan_data["classification"]["confidence"]])
@@ -454,8 +442,7 @@ def report():
  
     elif report_format == "pdf":
         buf  = BytesIO()
-        doc  = SimpleDocTemplate(buf, pagesize=pagesizes.A4,
-                                 topMargin=0.75*inch, bottomMargin=0.75*inch)
+        doc  = SimpleDocTemplate(buf, pagesize=pagesizes.A4, topMargin=0.75*inch, bottomMargin=0.75*inch)
         styl = getSampleStyleSheet()
         story = [
             Paragraph("SensitiveAI — Scan Report", styl["Title"]),
@@ -463,31 +450,25 @@ def report():
             Paragraph(f"<b>Scan ID:</b> {scan_data['scan_id']}",    styl["Normal"]),
             Paragraph(f"<b>File:</b> {scan_data['filename']}",       styl["Normal"]),
             Paragraph(f"<b>Timestamp:</b> {scan_data['timestamp']}", styl["Normal"]),
-            Paragraph(f"<b>Risk Score:</b> {scan_data['risk_score']}/100 — {scan_data['risk_level']}",
-                      styl["Normal"]),
+            Paragraph(f"<b>Risk Score:</b> {scan_data['risk_score']}/100 — {scan_data['risk_level']}", styl["Normal"]),
             Paragraph(f"<b>Classification:</b> {scan_data['classification']['label']} "
-                      f"({scan_data['classification']['confidence']*100:.1f}% confidence)",
-                      styl["Normal"]),
+                      f"({scan_data['classification']['confidence']*100:.1f}% confidence)", styl["Normal"]),
             Spacer(1, 18),
             Paragraph("Sensitive Data Findings", styl["Heading2"]),
         ]
         if scan_data["findings"]:
             rows = [["Pattern", "Occurrences", "Sample (masked)"]]
             for k, v in scan_data["findings"].items():
-                rows.append([
-                    k.replace("_", " ").title(),
-                    str(v["count"]),
-                    v["samples"][0] if v["samples"] else "—"
-                ])
+                rows.append([k.replace("_"," ").title(), str(v["count"]), v["samples"][0] if v["samples"] else "—"])
             t = Table(rows, colWidths=[2.2*inch, 1.5*inch, 3.3*inch])
             t.setStyle(TableStyle([
-                ("BACKGROUND",    (0, 0), (-1, 0), colors.HexColor("#F59E0B")),
-                ("TEXTCOLOR",     (0, 0), (-1, 0), colors.black),
-                ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("ROWBACKGROUNDS",(0, 1), (-1,-1), [colors.white, colors.HexColor("#F9F9F9")]),
-                ("GRID",          (0, 0), (-1,-1), 0.5, colors.HexColor("#DDDDDD")),
-                ("TOPPADDING",    (0, 0), (-1,-1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1,-1), 6),
+                ("BACKGROUND",    (0,0),(-1,0), colors.HexColor("#F59E0B")),
+                ("TEXTCOLOR",     (0,0),(-1,0), colors.black),
+                ("FONTNAME",      (0,0),(-1,0), "Helvetica-Bold"),
+                ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, colors.HexColor("#F9F9F9")]),
+                ("GRID",          (0,0),(-1,-1), 0.5, colors.HexColor("#DDDDDD")),
+                ("TOPPADDING",    (0,0),(-1,-1), 6),
+                ("BOTTOMPADDING", (0,0),(-1,-1), 6),
             ]))
             story.append(t)
         else:
@@ -503,10 +484,7 @@ def report():
 @app.route("/api/history", methods=["GET"])
 def history():
     limit = min(int(request.args.get("limit", 50)), 200)
-    return jsonify({
-        "history": list(reversed(scan_history))[:limit],
-        "total":   len(scan_history)
-    })
+    return jsonify({"history": list(reversed(scan_history))[:limit], "total": len(scan_history)})
  
  
 @app.route("/api/history/<scan_id>", methods=["DELETE"])
