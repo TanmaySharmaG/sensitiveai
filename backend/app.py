@@ -249,13 +249,12 @@ def _map_to_classification(pos_score: float, text: str) -> dict:
  
 def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
     findings   = detect_sensitive_data(text)
-    risk_score = calculate_risk_score(findings, max(len(text), 1), text)  # ← add text here
-
+    risk_score = calculate_risk_score(findings, max(len(text), 1), text)
     found_keys = set(findings.keys())
- 
+
     HIGH   = {"aadhaar", "pan", "credit_card", "password", "api_key", "bank_account", "ssn"}
     MEDIUM = {"email", "phone"}
- 
+
     if found_keys & HIGH:
         classification = {
             "label": "Highly Sensitive",
@@ -275,12 +274,22 @@ def build_scan_result(text: str, filename: str, scan_id: str) -> dict:
             "scores": {"Public": 0.05, "Internal": 0.85, "Confidential": 0.08, "Highly Sensitive": 0.02},
         }
     elif not findings:
-        # No patterns — use keyword + DistilBERT classification
         classification = classify_document(text)
     else:
         classification = classify_document(text)
- 
+
+    # ── Force risk score to match classification level ─────────────────────────
+    if risk_score == 0:
+        label = classification["label"]
+        if label == "Highly Sensitive":
+            risk_score = 75
+        elif label == "Confidential":
+            risk_score = 52
+        elif label == "Internal":
+            risk_score = 28
+
     risk_level = "Safe" if risk_score < 30 else "Medium Risk" if risk_score < 65 else "Critical Risk"
+    # ... rest stays same
  
     result = {
         "scan_id":          scan_id,
